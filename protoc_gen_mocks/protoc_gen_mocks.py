@@ -64,7 +64,9 @@ def get_field_type(field: FieldDescriptorProto) -> str:
         FieldDescriptorProto.TYPE_MESSAGE,
         FieldDescriptorProto.TYPE_GROUP,
     ]:
-        field_type = field.type_name.split(".")[-1]
+        # Nested protobufs have a type like "foo.bar.SomeMessage.NestedMessage"
+        field_type = ".".join(filter(lambda x: x and not x[0].islower(), field.type_name.split(".")))
+
         if not is_well_known_type(field):
             field_type = f"pb.{field_type}"
 
@@ -132,28 +134,72 @@ def generate_field_parameter(field: FieldDescriptorProto, padding: int = 0) -> s
     return " " * padding + response + ",\n"
 
 
+def generate_class_parameter(field: FieldDescriptorProto, padding: int = 0) -> str:
+    is_optional = field.label == FieldDescriptorProto.LABEL_OPTIONAL
+
+    is_list = field.label == FieldDescriptorProto.LABEL_REPEATED
+
+    response = f"{field.name}: "
+
+    if is_optional:
+        response += "Optional["
+
+    if is_list:
+        response += "list["
+
+    try:
+        response += get_field_type(field)
+    except KeyError:
+        LOGGER.exception(f"Unknown type {FieldDescriptorProto.Type.Name(field.type)}")
+
+    if is_list:
+        response += "]"
+
+    if is_optional:
+        response += "]"
+
+    return " " * padding + response + "\n"
+
+
 def camel_to_snake(message) -> str:
     xform = lambda c: f"_{c.lower()}" if c.isupper() else c
     return "".join(xform(c) for c in message).strip("_")  # Strip leading "_"
 
 
-def generate_message_mock(message: DescriptorProto) -> str:
-    nested_type_mocks = "\n".join(generate_message_mock(nested_type) for nested_type in message.nested_type)
-    return f"""
-{nested_type_mocks}    
-    
+# def generate_class_attribute_assignment(field: FieldDescriptorProto, padding: int = 0) -> str:
+#     return f"{padding * ' '}self.{field.name} = {field.name}\n"
+#
+def generate_nested_message_mock(message: DescriptorProto, parent_message: str, padding: int = 0) -> str:
+    code = f"""
 def make_{camel_to_snake(message.name)}(
     *,  # Keyword arguments only
-{"".join(generate_field_parameter(field, padding=4) 
- for field in message.field)}
+{"".join(generate_field_parameter(field, padding=padding) for field in message.field)}
+) -> pb.{parent_message}.{message.name}:
+    nested_mock = pb.{parent_message}.{message.name}(
+{''.join(generate_field_mock(field, padding=padding+4) for field in message.field)}
+    )
+    assert nested_mock.IsInitialized()
+    return nested_mock
+"""
+    return "\n".join(f"{padding * ' '}{line}" for line in code.split("\n"))
+
+
+def generate_message_mock(message: DescriptorProto) -> str:
+    nested_type_mocks = ""
+    if message.nested_type:
+        nested_type_mocks = "".join(generate_nested_message_mock(nested_type, message.name, padding=4) for nested_type in message.nested_type)
+
+    return f"""def make_{camel_to_snake(message.name)}(
+    *,  # Keyword arguments only
+{"".join(generate_field_parameter(field, padding=4) for field in message.field)}
 ) -> pb.{message.name}:
+{nested_type_mocks}
     mock = pb.{message.name}(
-{''.join(generate_field_mock(field, padding=8) 
- for field in message.field)}
+{''.join(generate_field_mock(field, padding=8) for field in message.field)}
     )
     assert mock.IsInitialized()
     return mock
-"""
+    """
 
 
 def generate_dependency_import_statement(dependency: str) -> str:
@@ -204,18 +250,23 @@ def process_file(
         data += "from enum import Enum\n"
         data += "from random import choice\n"
 
+    data += "from google.protobuf import Message\n"
     data += "from typing import Optional\n"
+
 
     data += generate_file_import_statement(proto_file.name) + "\n\n"
 
-    data += "\nn".join(generate_dependency_import_statement(dependency) for dependency in proto_file.dependency) + "\n\n"
+    if proto_file.dependency:
+        data += "\nn".join(generate_dependency_import_statement(dependency) for dependency in proto_file.dependency) + "\n\n"
 
-    data += "\n\n".join(generate_enum_type(enum) for enum in proto_file.enum_type) + "\n"
+    if proto_file.enum_type:
+        data += "\n\n".join(generate_enum_type(enum) for enum in proto_file.enum_type) + "\n"
 
-    data += "\n".join(
-        generate_message_mock(message)
-        for message in proto_file.message_type
-    )
+    if proto_file.message_type:
+        data += "\n\n".join(
+            generate_message_mock(message)
+            for message in proto_file.message_type
+        )
 
     file = response.file.add()
     file.name = proto_file.name.removesuffix(".proto") + "_mock.py"
