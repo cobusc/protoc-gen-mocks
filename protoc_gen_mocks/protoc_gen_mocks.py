@@ -13,7 +13,7 @@ from typing import Optional, Any, Callable
 from google.protobuf.compiler import plugin_pb2 as plugin
 from google.protobuf.descriptor import MakeDescriptor
 from google.protobuf.descriptor_pb2 import FileDescriptorProto, DescriptorProto, FieldDescriptorProto, \
-    EnumDescriptorProto
+    EnumDescriptorProto, SourceCodeInfo
 from google.protobuf.json_format import MessageToDict, MessageToJson
 
 LOGGER = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ TYPE_MAP: dict[FieldDescriptorProto.Type.ValueType, str] = {
     FieldDescriptorProto.TYPE_STRING: "str",
     FieldDescriptorProto.TYPE_BYTES: "bytes",
 }
+
+
+SOURCE_CODE_INFO: Optional[SourceCodeInfo] = None
 
 
 def is_well_known_type(field: FieldDescriptorProto) -> bool:
@@ -189,9 +192,12 @@ def generate_message_mock(message: DescriptorProto) -> str:
     if message.nested_type:
         nested_type_mocks = "".join(generate_nested_message_mock(nested_type, message.name, padding=4) for nested_type in message.nested_type)
 
+    arguments = "# No arguments"
+    if message.field:
+        arguments = "*,  # Keyword arguments only\n" + "".join(generate_field_parameter(field, padding=4) for field in message.field)
+
     return f"""def make_{camel_to_snake(message.name)}(
-    *,  # Keyword arguments only
-{"".join(generate_field_parameter(field, padding=4) for field in message.field)}
+    {arguments}
 ) -> pb.{message.name}:
 {nested_type_mocks}
     mock = pb.{message.name}(
@@ -245,6 +251,8 @@ def process_file(
     options = str(proto_file.options).strip().replace("\n", ", ").replace('"', "")
     options_dict = dict(item.split(": ") for item in options.split(", ") if options)
 
+    SOURCE_CODE_INFO = proto_file.source_code_info
+
     data = ""
     if proto_file.enum_type:
         data += "from enum import Enum\n"
@@ -271,7 +279,7 @@ def process_file(
     file = response.file.add()
     file.name = proto_file.name.removesuffix(".proto") + "_mock.py"
     LOGGER.info(f"Creating new file: {file.name}")
-    file.content = data  # json.dumps(data, indent=2)
+    file.content = data
 
 
 def process(
