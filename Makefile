@@ -1,9 +1,9 @@
 SHELL=/bin/bash
 VENV_DIR=ve
-PYTHON_VERSION=3.9
+PYTHON_VERSION=3.12
 PIP_COMPILE=$(VENV_DIR)/bin/pip-compile -vU --no-emit-index-url --rebuild
 
-.PHONY=update-requirements test-db test check black test
+.PHONY=update-requirements check black example
 .DEFAULT_GOAL=test
 
 $(VENV_DIR):
@@ -21,7 +21,7 @@ check:
 	$(VENV_DIR)/bin/pycodestyle protoc_gen_mocks/ 2>&1
 
 black:
-	$(VENV_DIR)/bin/black -t py39 -l 120 tests protoc_gen_mocks protc_gen_mocks_client
+	$(VENV_DIR)/bin/black -t py312 -l 120 protoc_gen_mocks
 
 example: 
 	$(VENV_DIR)/bin/python -m grpc_tools.protoc --plugin="protoc-gen-mocks=$$(which protoc-gen-mocks)" examples/*.proto --mocks_out=.  --proto_path=. --python_out=. --pyi_out=.	

@@ -12,8 +12,13 @@ from typing import Optional, Any, Callable
 
 from google.protobuf.compiler import plugin_pb2 as plugin
 from google.protobuf.descriptor import MakeDescriptor
-from google.protobuf.descriptor_pb2 import FileDescriptorProto, DescriptorProto, FieldDescriptorProto, \
-    EnumDescriptorProto, SourceCodeInfo
+from google.protobuf.descriptor_pb2 import (
+    FileDescriptorProto,
+    DescriptorProto,
+    FieldDescriptorProto,
+    EnumDescriptorProto,
+    SourceCodeInfo,
+)
 from google.protobuf.json_format import MessageToDict, MessageToJson
 
 LOGGER = logging.getLogger(__name__)
@@ -112,7 +117,7 @@ def generate_field_value_mock(field: FieldDescriptorProto):
 
 
 def generate_field_mock(field: FieldDescriptorProto, padding: int = 0) -> str:
-    return f"{' '*padding}{field.name}={generate_field_value_mock(field)}\n"
+    return f"{' ' * padding}{field.name}={generate_field_value_mock(field)}\n"
 
 
 def generate_field_parameter(field: FieldDescriptorProto, padding: int = 0) -> str:
@@ -165,7 +170,9 @@ def generate_class_parameter(field: FieldDescriptorProto, padding: int = 0) -> s
 
 
 def camel_to_snake(message) -> str:
-    xform = lambda c: f"_{c.lower()}" if c.isupper() else c
+    def xform(character: str) -> str:
+        return f"_{character.lower()}" if character.isupper() else character
+
     return "".join(xform(c) for c in message).strip("_")  # Strip leading "_"
 
 
@@ -179,7 +186,7 @@ def make_{camel_to_snake(message.name)}(
 {"".join(generate_field_parameter(field, padding=padding) for field in message.field)}
 ) -> pb.{parent_message}.{message.name}:
     nested_mock = pb.{parent_message}.{message.name}(
-{''.join(generate_field_mock(field, padding=padding+4) for field in message.field)}
+{''.join(generate_field_mock(field, padding=padding + 4) for field in message.field)}
     )
     assert nested_mock.IsInitialized()
     return nested_mock
@@ -190,11 +197,15 @@ def make_{camel_to_snake(message.name)}(
 def generate_message_mock(message: DescriptorProto) -> str:
     nested_type_mocks = ""
     if message.nested_type:
-        nested_type_mocks = "".join(generate_nested_message_mock(nested_type, message.name, padding=4) for nested_type in message.nested_type)
+        nested_type_mocks = "".join(
+            generate_nested_message_mock(nested_type, message.name, padding=4) for nested_type in message.nested_type
+        )
 
     arguments = "# No arguments"
     if message.field:
-        arguments = "*,  # Keyword arguments only\n" + "".join(generate_field_parameter(field, padding=4) for field in message.field)
+        arguments = "*,  # Keyword arguments only\n" + "".join(
+            generate_field_parameter(field, padding=4) for field in message.field
+        )
 
     return f"""def make_{camel_to_snake(message.name)}(
     {arguments}
@@ -202,6 +213,7 @@ def generate_message_mock(message: DescriptorProto) -> str:
 {nested_type_mocks}
     mock = pb.{message.name}(
 {''.join(generate_field_mock(field, padding=8) for field in message.field)}
+{''.join(f"# {field.name=} {field.type=} {field.type_name=}" for field in message.field)}
     )
     assert mock.IsInitialized()
     return mock
@@ -217,8 +229,10 @@ def generate_dependency_import_statement(dependency: str) -> str:
     parts = dependency.split("/")
     filename = parts[-1]
     file_without_extension = filename.split(".")[0]
-    return f"from {'.'.join(parts[0:-1])}.{file_without_extension}_pb2 import {file_without_extension.title()}" \
-           f"\nfrom {'.'.join(parts[0:-1])}.{file_without_extension}_mock import *  # TODO"
+    return (
+        f"from {'.'.join(parts[0:-1])}.{file_without_extension}_pb2 import {file_without_extension.title()}"
+        f"\nfrom {'.'.join(parts[0:-1])}.{file_without_extension}_mock import *  # TODO"
+    )
 
 
 def generate_file_import_statement(filepath: str) -> str:
@@ -240,9 +254,7 @@ def generate_enum_type(enum_type: EnumDescriptorProto) -> str:
     return response
 
 
-def process_file(
-    proto_file: FileDescriptorProto, response: plugin.CodeGeneratorResponse
-) -> None:
+def process_file(proto_file: FileDescriptorProto, response: plugin.CodeGeneratorResponse) -> None:
     LOGGER.info(f"Processing proto_file: {proto_file.name}")
 
     LOGGER.debug("Input:\n%s", MessageToDict(proto_file))
@@ -261,20 +273,19 @@ def process_file(
     data += "from google.protobuf import Message\n"
     data += "from typing import Optional\n"
 
-
     data += generate_file_import_statement(proto_file.name) + "\n\n"
 
     if proto_file.dependency:
-        data += "\nn".join(generate_dependency_import_statement(dependency) for dependency in proto_file.dependency) + "\n\n"
+        data += (
+            "\nn".join(generate_dependency_import_statement(dependency) for dependency in proto_file.dependency)
+            + "\n\n"
+        )
 
     if proto_file.enum_type:
         data += "\n\n".join(generate_enum_type(enum) for enum in proto_file.enum_type) + "\n"
 
     if proto_file.message_type:
-        data += "\n\n".join(
-            generate_message_mock(message)
-            for message in proto_file.message_type
-        )
+        data += "\n\n".join(generate_message_mock(message) for message in proto_file.message_type)
 
     file = response.file.add()
     file.name = proto_file.name.removesuffix(".proto") + "_mock.py"
@@ -282,9 +293,7 @@ def process_file(
     file.content = data
 
 
-def process(
-    request: plugin.CodeGeneratorRequest, response: plugin.CodeGeneratorResponse
-) -> None:
+def process(request: plugin.CodeGeneratorRequest, response: plugin.CodeGeneratorResponse) -> None:
     for proto_file in request.proto_file:
         process_file(proto_file, response)
 
@@ -292,7 +301,6 @@ def process(
 def main() -> None:
     # Load the request from stdin
     request = plugin.CodeGeneratorRequest.FromString(sys.stdin.buffer.read())
-
 
     LOGGER.debug("Request:\n%s\n", MessageToJson(request, indent=2))
 
