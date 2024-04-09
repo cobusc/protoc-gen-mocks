@@ -1,6 +1,6 @@
 # protoc-gen-mocks
 
-> Status: Proof of concept with some know limitations.
+> Status: Proof of concept with some known limitations.
 
 A plugin for the Google protobuf compiler (protoc) that generates mocks for Python.
 
