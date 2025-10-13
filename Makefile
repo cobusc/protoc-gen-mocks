@@ -1,6 +1,6 @@
 SHELL=/bin/bash
 VENV_DIR=ve
-PYTHON_VERSION=3.12
+PYTHON_VERSION=3.13
 PIP_COMPILE=$(VENV_DIR)/bin/pip-compile -vU --no-emit-index-url --rebuild
 
 .PHONY=update-requirements check black example

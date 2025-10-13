@@ -213,7 +213,7 @@ def generate_message_mock(message: DescriptorProto) -> str:
 {nested_type_mocks}
     mock = pb.{message.name}(
 {''.join(generate_field_mock(field, padding=8) for field in message.field)}
-{''.join(f"# {field.name=} {field.type=} {field.type_name=}" for field in message.field)}
+{'\n'.join(f"        # {field.name=} {field.type=} {field.type_name=}" for field in message.field)}
     )
     assert mock.IsInitialized()
     return mock
@@ -244,12 +244,13 @@ def generate_file_import_statement(filepath: str) -> str:
     parts = filepath.split("/")
     filename = parts[-1]
     file_without_extension = filename.split(".")[0]
-    return f"from {'.'.join(parts[0:-1])} import {file_without_extension}_pb2 as pb"
+    import_from = ".".join(parts[0:-1]) or "."
+    return f"from {import_from} import {file_without_extension}_pb2 as pb"
 
 
 def generate_enum_type(enum_type: EnumDescriptorProto) -> str:
     response = f"class {enum_type.name}(Enum):\n"
-    response += "\n".join(f"    {v.name}: {v.number}" for v in enum_type.value)
+    response += "\n".join(f"    {v.name} = {v.number}" for v in enum_type.value)
     response += "\n\n"
     return response
 
@@ -270,16 +271,19 @@ def process_file(proto_file: FileDescriptorProto, response: plugin.CodeGenerator
         data += "from enum import Enum\n"
         data += "from random import choice\n"
 
-    data += "from google.protobuf import Message\n"
-    data += "from typing import Optional\n"
+    data += "from google.protobuf.message import Message\n"
+    data += "from typing import Optional\n\n\n"
 
-    data += generate_file_import_statement(proto_file.name) + "\n\n"
 
+    # First dependencies
     if proto_file.dependency:
         data += (
-            "\nn".join(generate_dependency_import_statement(dependency) for dependency in proto_file.dependency)
+            "\n".join(generate_dependency_import_statement(dependency) for dependency in proto_file.dependency)
             + "\n\n"
         )
+
+    # Then our file
+    data += generate_file_import_statement(proto_file.name) + "\n\n"
 
     if proto_file.enum_type:
         data += "\n\n".join(generate_enum_type(enum) for enum in proto_file.enum_type) + "\n"
@@ -287,8 +291,9 @@ def process_file(proto_file: FileDescriptorProto, response: plugin.CodeGenerator
     if proto_file.message_type:
         data += "\n\n".join(generate_message_mock(message) for message in proto_file.message_type)
 
+
     file = response.file.add()
-    file.name = proto_file.name.removesuffix(".proto") + "_mock.py"
+    file.name = proto_file.name.removesuffix(".proto") + "_mocks.py"
     LOGGER.info(f"Creating new file: {file.name}")
     file.content = data
 
